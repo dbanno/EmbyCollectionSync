@@ -49,6 +49,10 @@ func (c Client) request(ctx context.Context, method, path string, q url.Values, 
 }
 
 func (c Client) Items(ctx context.Context, q url.Values) ([]model.EmbyItem, error) {
+	return c.items(ctx, q, nil)
+}
+
+func (c Client) items(ctx context.Context, q url.Values, progress func(int, int)) ([]model.EmbyItem, error) {
 	const limit = 500
 	out := []model.EmbyItem{}
 	for start := 0; ; {
@@ -64,6 +68,9 @@ func (c Client) Items(ctx context.Context, q url.Values) ([]model.EmbyItem, erro
 		}
 		out = append(out, p.Items...)
 		start += len(p.Items)
+		if progress != nil {
+			progress(start, p.Total)
+		}
 		if start >= p.Total {
 			break
 		}
@@ -74,8 +81,8 @@ func (c Client) Items(ctx context.Context, q url.Values) ([]model.EmbyItem, erro
 	return out, nil
 }
 
-func (c Client) Library(ctx context.Context) ([]model.EmbyItem, error) {
-	return c.Items(ctx, url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "Fields": {"ProviderIds"}, "GroupItemsIntoCollections": {"false"}})
+func (c Client) Library(ctx context.Context, progress func(int, int)) ([]model.EmbyItem, error) {
+	return c.items(ctx, url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "Fields": {"ProviderIds"}, "GroupItemsIntoCollections": {"false"}}, progress)
 }
 func (c Client) Collections(ctx context.Context) ([]model.EmbyItem, error) {
 	return c.Items(ctx, url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"BoxSet"}})

@@ -46,10 +46,12 @@ func run(configPath string, dryRun bool) error {
 	var library, collections []model.EmbyItem
 	for _, col := range cfg.Collections {
 		if col.Enabled {
-			library, err = ec.Library(ctx)
+			log.Print("Loading Emby library...")
+			library, err = ec.Library(ctx, func(loaded, total int) { log.Printf("Loaded %d/%d items...", loaded, total) })
 			if err != nil {
 				return fmt.Errorf("load Emby library: %w", err)
 			}
+			log.Print("Loading Emby collections...")
 			collections, err = ec.Collections(ctx)
 			if err != nil {
 				return fmt.Errorf("load Emby collections: %w", err)
@@ -81,6 +83,7 @@ func run(configPath string, dryRun bool) error {
 }
 
 func process(ctx context.Context, col config.Collection, dryRun bool, sc source.Provider, ec emby.Client, library []model.EmbyItem, byID map[string]model.EmbyItem, byName map[string][]model.EmbyItem, state *syncer.State, statePath string, started time.Time) error {
+	log.Printf("Fetching source: %s...", col.Name)
 	entries, err := sc.Fetch(ctx, col)
 	if err != nil {
 		return err
@@ -126,6 +129,9 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 		}
 	}
 	plan := syncer.Reconcile(entries, library, current)
+	for _, d := range plan.Duplicates {
+		log.Printf("Duplicate match: type=%s %s=%s title=%q candidates=%v selected=%s", d.Type, d.Provider, d.ProviderID, d.Title, d.Candidates, d.Selected)
+	}
 	for _, v := range plan.Unmatched {
 		log.Printf("Unmatched: collection=%q type=%s title=%q year=%d tmdb=%q imdb=%q tvdb=%q", col.Name, v.Type, v.Title, v.Year, v.TMDbID, v.IMDbID, v.TVDbID)
 	}

@@ -1,6 +1,6 @@
 # EmbyCollectionSync
 
-A small Go CLI that mirrors public MDBList or Trakt lists into Emby collections. It matches movies and series by TMDb ID, then IMDb ID, then TVDb ID. It never guesses from titles.
+A small Go CLI that mirrors public MDBList or Trakt lists into Emby collections. It matches movies and series by TMDb ID, then IMDb ID, then TVDb ID. When several Emby items share an ID, it selects the lowest numeric Emby item ID (or lexical ID for nonnumeric IDs) and logs the candidates. It never guesses from titles.
 
 ## Build
 
