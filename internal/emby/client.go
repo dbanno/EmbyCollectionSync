@@ -90,15 +90,18 @@ func (c Client) Collections(ctx context.Context) ([]model.EmbyItem, error) {
 func (c Client) CollectionItems(ctx context.Context, id string) ([]model.EmbyItem, error) {
 	return c.Items(ctx, url.Values{"ParentId": {id}, "IncludeItemTypes": {"Movie,Series"}, "Recursive": {"false"}})
 }
-func (c Client) CreateCollection(ctx context.Context, name string) (string, error) {
+func (c Client) CreateCollection(ctx context.Context, name, initialItemID string) (string, error) {
+	if initialItemID == "" {
+		return "", fmt.Errorf("create collection %q: initial Emby item ID is required", name)
+	}
 	var v struct {
 		ID string `json:"Id"`
 	}
-	if err := c.request(ctx, "POST", "Collections", url.Values{"Name": {name}}, &v); err != nil {
-		return "", err
+	if err := c.request(ctx, "POST", "Collections", url.Values{"Name": {name}, "IsLocked": {"false"}, "Ids": {initialItemID}}, &v); err != nil {
+		return "", fmt.Errorf("create collection %q with initial item %s: %w", name, initialItemID, err)
 	}
 	if v.ID == "" {
-		return "", fmt.Errorf("Emby created collection without an ID")
+		return "", fmt.Errorf("create collection %q with initial item %s: Emby response has no collection ID", name, initialItemID)
 	}
 	return v.ID, nil
 }

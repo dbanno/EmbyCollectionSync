@@ -31,6 +31,8 @@ On Synology Task Scheduler, run the binary with an absolute `--config` path and 
 
 Secrets support `${ENV_VAR}` expansion. Avoid placing keys in source URLs. The app makes no changes with `--dry-run`; it prints the proposed Emby item IDs to add/remove and a summary. Unmatched source entries are logged and skipped. An empty source response stops that collection instead of clearing it.
 
+Creating a new Emby collection requires at least one matched library item. The first matched item seeds the collection; remaining items are added in batches.
+
 The app saves `.embycollectionsync-state.json` beside the config after creating or adopting a collection. It records the Emby collection ID, source, and URL. Do not delete it while managing collections; without it, a subsequent run will refuse to modify a same-name collection until an explicit `emby_id` is configured. Changing a managed collection's source requires deliberate state/config review.
 
 ## API behavior

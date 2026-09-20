@@ -135,6 +135,9 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 	for _, v := range plan.Unmatched {
 		log.Printf("Unmatched: collection=%q type=%s title=%q year=%d tmdb=%q imdb=%q tvdb=%q", col.Name, v.Type, v.Title, v.Year, v.TMDbID, v.IMDbID, v.TVDbID)
 	}
+	if !known && len(plan.Add) == 0 {
+		return fmt.Errorf("cannot create collection %q: no source items matched the Emby library", col.Name)
+	}
 	if dryRun {
 		if !known {
 			log.Printf("Dry run: would create collection %q", col.Name)
@@ -143,11 +146,13 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 		summary(col, plan, started, true)
 		return nil
 	}
+	addIDs := plan.Add
 	if !known {
-		id, err = ec.CreateCollection(ctx, col.Name)
+		id, err = ec.CreateCollection(ctx, col.Name, plan.Add[0])
 		if err != nil {
 			return err
 		}
+		addIDs = plan.Add[1:]
 		state.Collections[col.Name] = syncer.Managed{ID: id, Source: col.Source, URL: col.URL}
 		if err := state.Save(statePath); err != nil {
 			return fmt.Errorf("collection created but could not save ownership state: %w", err)
@@ -160,7 +165,7 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 			return fmt.Errorf("could not save ownership state: %w", err)
 		}
 	}
-	if err := ec.ChangeItems(ctx, id, plan.Add, true); err != nil {
+	if err := ec.ChangeItems(ctx, id, addIDs, true); err != nil {
 		return err
 	}
 	if err := ec.ChangeItems(ctx, id, plan.Remove, false); err != nil {
