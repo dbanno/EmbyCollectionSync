@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -81,8 +82,60 @@ func (c Client) items(ctx context.Context, q url.Values, progress func(int, int)
 	return out, nil
 }
 
-func (c Client) Library(ctx context.Context, progress func(int, int)) ([]model.EmbyItem, error) {
-	return c.items(ctx, url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "Fields": {"ProviderIds"}, "GroupItemsIntoCollections": {"false"}}, progress)
+const providerBatchSize = 50
+
+func ProviderFilters(items []model.Item) []string {
+	seen := map[string]bool{}
+	for _, item := range items {
+		for _, provider := range []struct{ name, id string }{{"tmdb", item.TMDbID}, {"imdb", item.IMDbID}, {"tvdb", item.TVDbID}} {
+			id := strings.ToLower(strings.TrimSpace(provider.id))
+			if id != "" {
+				seen[provider.name+"."+id] = true
+			}
+		}
+	}
+	filters := make([]string, 0, len(seen))
+	for filter := range seen {
+		filters = append(filters, filter)
+	}
+	sort.Strings(filters)
+	return filters
+}
+
+func (c Client) LibraryMatching(ctx context.Context, filters []string) ([]model.EmbyItem, int, error) {
+	if len(filters) == 0 {
+		return nil, 0, nil
+	}
+	batchCount := (len(filters) + providerBatchSize - 1) / providerBatchSize
+	byID := make(map[string]model.EmbyItem)
+	for start := 0; start < len(filters); start += providerBatchSize {
+		end := start + providerBatchSize
+		if end > len(filters) {
+			end = len(filters)
+		}
+		query := url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series"}, "Fields": {"ProviderIds"}, "GroupItemsIntoCollections": {"false"}, "AnyProviderIdEquals": {strings.Join(filters[start:end], ",")}}
+		items, err := c.Items(ctx, query)
+		if err != nil {
+			return nil, 0, fmt.Errorf("AnyProviderIdEquals batch %d/%d failed: %w", start/providerBatchSize+1, batchCount, err)
+		}
+		for _, item := range items {
+			if item.ID != "" {
+				if _, seen := byID[item.ID]; !seen {
+					byID[item.ID] = item
+				}
+			}
+		}
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]model.EmbyItem, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, byID[id])
+	}
+	return result, batchCount, nil
 }
 func (c Client) Collections(ctx context.Context) ([]model.EmbyItem, error) {
 	return c.Items(ctx, url.Values{"Recursive": {"true"}, "IncludeItemTypes": {"BoxSet"}})

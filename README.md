@@ -37,7 +37,7 @@ The app saves `.embycollectionsync-state.json` beside the config after creating 
 
 ## API behavior
 
-MDBList list items are read from its list items API with `unified=true`, `limit`, and `offset`, following `X-Has-More`. Trakt list items use `page` and `limit` and follow `X-Pagination-Page-Count`. Emby movies and series are fetched in pages with `ProviderIds`, then collections are reconciled using batched item additions/removals. No external item causes an individual Emby lookup.
+MDBList list items are read from its list items API with `unified=true`, `limit`, and `offset`, following `X-Has-More`. Trakt list items use `page` and `limit` and follow `X-Pagination-Page-Count`. All enabled sources are fetched first. Their TMDb, IMDb, and TVDb IDs are combined into one set, then Emby movies and series are queried with `AnyProviderIdEquals` in batches of 50 provider IDs. Results are paginated and deduplicated by Emby item ID before collections are reconciled. If Emby rejects a filtered batch, the run stops before changing collections. A source with no provider IDs is skipped to avoid clearing its managed collection.
 
 API references: [MDBList API and key](https://docs.mdblist.com/docs/api), [MDBList list URL format](https://docs.mdblist.com/docs/third-party/kometa), [Trakt authentication](https://docs.trakt.tv/docs/authentication-oauth), [Trakt pagination announcement](https://github.com/trakt/trakt-api/discussions/681), [Emby items query](https://dev.emby.media/reference/RestAPI/ItemsService/getItems.html), [Emby collection API](https://dev.emby.media/reference/RestAPI/CollectionService.html).
 

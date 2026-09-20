@@ -43,21 +43,34 @@ func run(configPath string, dryRun bool) error {
 	ec := emby.Client{BaseURL: cfg.Emby.URL, APIKey: cfg.Emby.APIKey, HTTP: httpClient}
 	sc := source.Client{HTTP: httpClient, MDBListKey: cfg.MDBList.APIKey, TraktClientID: cfg.Trakt.ClientID, TraktToken: cfg.Trakt.AccessToken}
 	ctx := context.Background()
-	var library, collections []model.EmbyItem
-	for _, col := range cfg.Collections {
-		if col.Enabled {
-			log.Print("Loading Emby library...")
-			library, err = ec.Library(ctx, func(loaded, total int) { log.Printf("Loaded %d/%d items...", loaded, total) })
-			if err != nil {
-				return fmt.Errorf("load Emby library: %w", err)
-			}
-			log.Print("Loading Emby collections...")
-			collections, err = ec.Collections(ctx)
-			if err != nil {
-				return fmt.Errorf("load Emby collections: %w", err)
-			}
-			break
+	loaded := fetchSources(ctx, cfg.Collections, sc)
+	allItems := []model.Item{}
+	failures := 0
+	for _, entry := range loaded {
+		if entry.err != nil {
+			failures++
+			log.Printf("Sync failed: collection=%q: %v", entry.cfg.Name, entry.err)
+			continue
 		}
+		allItems = append(allItems, entry.items...)
+	}
+	if len(allItems) == 0 {
+		if failures > 0 {
+			return fmt.Errorf("%d collection(s) failed", failures)
+		}
+		return nil
+	}
+	log.Print("Loading matching Emby items...")
+	filters := emby.ProviderFilters(allItems)
+	library, batches, err := ec.LibraryMatching(ctx, filters)
+	if err != nil {
+		return fmt.Errorf("load matching Emby items; no collections changed: %w", err)
+	}
+	log.Printf("Loaded %d matching Emby items from %d provider batches", len(library), batches)
+	log.Print("Loading Emby collections...")
+	collections, err := ec.Collections(ctx)
+	if err != nil {
+		return fmt.Errorf("load Emby collections: %w", err)
 	}
 	byID := map[string]model.EmbyItem{}
 	byName := map[string][]model.EmbyItem{}
@@ -65,15 +78,13 @@ func run(configPath string, dryRun bool) error {
 		byID[v.ID] = v
 		byName[v.Name] = append(byName[v.Name], v)
 	}
-	failures := 0
-	for _, col := range cfg.Collections {
-		if !col.Enabled {
+	for _, entry := range loaded {
+		if entry.err != nil {
 			continue
 		}
-		started := time.Now()
-		if err := process(ctx, col, dryRun, sc, ec, library, byID, byName, &state, statePath, started); err != nil {
+		if err := process(ctx, entry.cfg, entry.items, dryRun, ec, library, byID, byName, &state, statePath, entry.started); err != nil {
 			failures++
-			log.Printf("Sync failed: collection=%q: %v", col.Name, err)
+			log.Printf("Sync failed: collection=%q: %v", entry.cfg.Name, err)
 		}
 	}
 	if failures > 0 {
@@ -82,15 +93,37 @@ func run(configPath string, dryRun bool) error {
 	return nil
 }
 
-func process(ctx context.Context, col config.Collection, dryRun bool, sc source.Provider, ec emby.Client, library []model.EmbyItem, byID map[string]model.EmbyItem, byName map[string][]model.EmbyItem, state *syncer.State, statePath string, started time.Time) error {
-	log.Printf("Fetching source: %s...", col.Name)
-	entries, err := sc.Fetch(ctx, col)
-	if err != nil {
-		return err
+type loadedSource struct {
+	cfg     config.Collection
+	items   []model.Item
+	started time.Time
+	err     error
+}
+
+func fetchSources(ctx context.Context, collections []config.Collection, provider source.Provider) []loadedSource {
+	loaded := []loadedSource{}
+	for _, col := range collections {
+		if !col.Enabled {
+			continue
+		}
+		entry := loadedSource{cfg: col, started: time.Now()}
+		log.Printf("Fetching source: %s...", col.Name)
+		entry.items, entry.err = provider.Fetch(ctx, col)
+		if entry.err == nil && len(entry.items) == 0 {
+			entry.err = fmt.Errorf("source list is empty; refusing to remove collection items")
+		}
+		if entry.err == nil && len(emby.ProviderFilters(entry.items)) == 0 {
+			entry.err = fmt.Errorf("source list has no provider IDs; refusing to remove collection items")
+		}
+		if entry.err == nil {
+			log.Printf("Source loaded: %d items", len(entry.items))
+		}
+		loaded = append(loaded, entry)
 	}
-	if len(entries) == 0 {
-		return fmt.Errorf("source list is empty; refusing to remove collection items")
-	}
+	return loaded
+}
+
+func process(ctx context.Context, col config.Collection, entries []model.Item, dryRun bool, ec emby.Client, library []model.EmbyItem, byID map[string]model.EmbyItem, byName map[string][]model.EmbyItem, state *syncer.State, statePath string, started time.Time) error {
 	managed, known := state.Collections[col.Name]
 	if known && (managed.Source != col.Source || managed.URL != col.URL) {
 		return fmt.Errorf("source changed for managed collection; review state before proceeding")
@@ -123,6 +156,7 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 	}
 	var current []model.EmbyItem
 	if known {
+		var err error
 		current, err = ec.CollectionItems(ctx, id)
 		if err != nil {
 			return err
@@ -148,6 +182,7 @@ func process(ctx context.Context, col config.Collection, dryRun bool, sc source.
 	}
 	addIDs := plan.Add
 	if !known {
+		var err error
 		id, err = ec.CreateCollection(ctx, col.Name, plan.Add[0])
 		if err != nil {
 			return err
