@@ -1,0 +1,21 @@
+emby:
+  url: "https://emby.example.com"
+  api_key: "${EMBY_API_KEY}"
+
+mdblist:
+  api_key: "${MDBLIST_API_KEY}"
+
+trakt:
+  client_id: "${TRAKT_CLIENT_ID}"
+  # access_token: "${TRAKT_ACCESS_TOKEN}" # only needed for private lists
+
+collections:
+  - name: "Netflix Top"
+    source: mdblist
+    url: "https://mdblist.com/lists/user/list-slug"
+    enabled: true
+  - name: "Marvel Cinematic Universe"
+    source: trakt
+    url: "https://trakt.tv/users/user/lists/list-slug"
+    enabled: true
+    # emby_id: "12345" # explicitly adopt an existing collection

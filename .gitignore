@@ -1,0 +1,8 @@
+/embycollectionsync
+/embycollectionsync.exe
+/config.yaml
+.embycollectionsync-state.json
+*.tmp
+/.gocache/
+/.gomodcache/
+/dist/
